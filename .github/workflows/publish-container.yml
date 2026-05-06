@@ -36,7 +36,7 @@ jobs:
             exit 1
           fi
 
-          version="$(sed -E 's/^TopSpeed\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v(.+)\.zip$/\3/' <<< "${asset_name}")"
+          version="$(sed -E 's/^TopSpeed\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v-?(.+)\.zip$/\3/' <<< "${asset_name}")"
           if [ "${version}" = "${asset_name}" ]; then
             version="$(date -u +%Y%m%d%H%M%S)"
           fi
@@ -97,7 +97,7 @@ jobs:
           asset_url="$(jq -r --arg name "${asset_name}" '.assets[] | select(.name == $name) | .browser_download_url' <<< "${release_json}")"
 
           expected_version="${{ needs.resolve.outputs.version }}"
-          actual_version="$(sed -E 's/^TopSpeed\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v(.+)\.zip$/\3/' <<< "${asset_name}")"
+          actual_version="$(sed -E 's/^TopSpeed\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v-?(.+)\.zip$/\3/' <<< "${asset_name}")"
 
           if [ "${actual_version}" != "${expected_version}" ]; then
             echo "Asset version ${actual_version} does not match resolved version ${expected_version}." >&2
