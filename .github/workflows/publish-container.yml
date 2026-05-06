@@ -12,6 +12,7 @@ permissions:
 env:
   UPSTREAM_REPO: diamondStar35/top_speed
   IMAGE_REPOSITORY: topspeed-server
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   resolve:
@@ -152,6 +153,8 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           push: true
+          provenance: false
+          sbom: false
           build-args: |
             BASE_IMAGE=${{ matrix.base_image }}
           tags: |
@@ -205,13 +208,26 @@ jobs:
 
           image="${{ steps.image.outputs.name }}"
           version="${{ needs.resolve.outputs.tag }}"
-
-          docker buildx imagetools create \
-            --tag "${image}:latest" \
-            --tag "${image}:${version}" \
-            "${image}:amd64-${version}" \
-            "${image}:arm64-${version}" \
+          sources=(
+            "${image}:amd64-${version}"
+            "${image}:arm64-${version}"
             "${image}:arm32-${version}"
+          )
+
+          for attempt in 1 2 3 4 5; do
+            if docker buildx imagetools create \
+              --tag "${image}:latest" \
+              --tag "${image}:${version}" \
+              "${sources[@]}"; then
+              exit 0
+            fi
+
+            echo "Manifest publish attempt ${attempt} failed. Waiting for registry propagation..."
+            sleep 15
+          done
+
+          echo "Failed to publish multi-arch manifest after retries." >&2
+          exit 1
 
       - name: Summary
         run: |
