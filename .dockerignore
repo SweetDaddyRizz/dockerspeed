@@ -1,0 +1,8 @@
+.git
+.gitignore
+README.Docker.md
+*.log
+logs/
+app/settings/
+tmp/
+temp/

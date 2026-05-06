@@ -1,0 +1,227 @@
+name: Publish container
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 7 * * *"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  UPSTREAM_REPO: diamondStar35/top_speed
+  IMAGE_REPOSITORY: topspeed-server
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - name: Resolve upstream release version
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          release_json="$(gh api "repos/${UPSTREAM_REPO}/releases/latest")"
+          asset_name="$(jq -r '.assets[].name' <<< "${release_json}" | grep -E '^TopSpeed\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v.*\.zip$' | head -n 1)"
+
+          if [ -z "${asset_name}" ]; then
+            echo "No supported TopSpeed.Server release asset found." >&2
+            exit 1
+          fi
+
+          version="$(sed -E 's/^TopSpeed\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v(.+)\.zip$/\3/' <<< "${asset_name}")"
+          if [ "${version}" = "${asset_name}" ]; then
+            version="$(date -u +%Y%m%d%H%M%S)"
+          fi
+
+          tag="$(tr '[:upper:]' '[:lower:]' <<< "${version}" | sed -E 's/[^a-z0-9_.-]+/-/g')"
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+  publish:
+    needs: resolve
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - release_name: amd64
+            asset_pattern: ^TopSpeed\.Server-linux-musl-x64-Release-v.*\.zip$
+            image_tag: amd64
+            platform: linux/amd64
+            base_image: mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine
+          - release_name: arm64
+            asset_pattern: ^TopSpeed\.Server-linux-arm64-Release-v.*\.zip$
+            image_tag: arm64
+            platform: linux/arm64
+            base_image: mcr.microsoft.com/dotnet/runtime-deps:10.0
+          - release_name: arm32
+            asset_pattern: ^TopSpeed\.Server-linux-arm32-Release-v.*\.zip$
+            image_tag: arm32
+            platform: linux/arm/v7
+            base_image: mcr.microsoft.com/dotnet/runtime-deps:10.0
+          - release_name: musl-arm64
+            asset_pattern: ^TopSpeed\.Server-linux-musl-arm64-Release-v.*\.zip$
+            image_tag: musl-arm64
+            platform: linux/arm64
+            base_image: mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine
+
+    steps:
+      - name: Check out container repo
+        uses: actions/checkout@v4
+
+      - name: Resolve upstream server asset
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_PATTERN: ${{ matrix.asset_pattern }}
+        run: |
+          set -euo pipefail
+
+          release_json="$(gh api "repos/${UPSTREAM_REPO}/releases/latest")"
+          asset_name="$(jq -r '.assets[].name' <<< "${release_json}" | grep -E "${ASSET_PATTERN}" | head -n 1)"
+
+          if [ -z "${asset_name}" ]; then
+            echo "No matching release asset found for ${ASSET_PATTERN}." >&2
+            exit 1
+          fi
+
+          asset_url="$(jq -r --arg name "${asset_name}" '.assets[] | select(.name == $name) | .browser_download_url' <<< "${release_json}")"
+
+          expected_version="${{ needs.resolve.outputs.version }}"
+          actual_version="$(sed -E 's/^TopSpeed\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v(.+)\.zip$/\3/' <<< "${asset_name}")"
+
+          if [ "${actual_version}" != "${expected_version}" ]; then
+            echo "Asset version ${actual_version} does not match resolved version ${expected_version}." >&2
+            exit 1
+          fi
+
+          echo "asset_url=${asset_url}" >> "${GITHUB_OUTPUT}"
+          echo "asset_name=${asset_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download server release into app
+        env:
+          ASSET_URL: ${{ steps.release.outputs.asset_url }}
+        run: |
+          set -euo pipefail
+
+          rm -rf app
+          mkdir app
+          curl --fail --location --retry 3 --output /tmp/topspeed-server.zip "${ASSET_URL}"
+          unzip -q /tmp/topspeed-server.zip -d app
+
+          shopt -s dotglob nullglob
+          entries=(app/*)
+          if [ "${#entries[@]}" -eq 1 ] && [ -d "${entries[0]}" ] && [ -f "${entries[0]}/TopSpeed.Server" ]; then
+            mkdir /tmp/topspeed-app
+            mv "${entries[0]}"/* /tmp/topspeed-app/
+            rm -rf app
+            mv /tmp/topspeed-app app
+          fi
+
+          test -f app/TopSpeed.Server
+          test -f app/TopSpeed.Server.dll
+
+      - name: Set image name
+        id: image
+        run: |
+          owner="$(tr '[:upper:]' '[:lower:]' <<< "${GITHUB_REPOSITORY_OWNER}")"
+          echo "name=ghcr.io/${owner}/${IMAGE_REPOSITORY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ matrix.base_image }}
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ matrix.image_tag }}-latest
+            ${{ steps.image.outputs.name }}:${{ matrix.image_tag }}-${{ needs.resolve.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=TopSpeed Server
+            org.opencontainers.image.description=Containerized TopSpeed.Server release
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/diamondStar35/top_speed
+            org.opencontainers.image.version=${{ needs.resolve.outputs.version }}
+            org.opencontainers.image.vendor=diamondStar35/top_speed
+            org.opencontainers.image.ref.name=${{ matrix.image_tag }}
+
+      - name: Summary
+        run: |
+          {
+            echo "Published image for ${{ matrix.release_name }}:"
+            echo "- \`${{ steps.image.outputs.name }}:${{ matrix.image_tag }}-latest\`"
+            echo "- \`${{ steps.image.outputs.name }}:${{ matrix.image_tag }}-${{ needs.resolve.outputs.tag }}\`"
+            echo ""
+            echo "Source asset: \`${{ steps.release.outputs.asset_name }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  publish-manifests:
+    needs:
+      - resolve
+      - publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set image name
+        id: image
+        run: |
+          owner="$(tr '[:upper:]' '[:lower:]' <<< "${GITHUB_REPOSITORY_OWNER}")"
+          echo "name=ghcr.io/${owner}/${IMAGE_REPOSITORY}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create default multi-arch manifests
+        run: |
+          set -euo pipefail
+
+          image="${{ steps.image.outputs.name }}"
+          version="${{ needs.resolve.outputs.tag }}"
+
+          docker buildx imagetools create \
+            --tag "${image}:latest" \
+            --tag "${image}:${version}" \
+            "${image}:amd64-${version}" \
+            "${image}:arm64-${version}" \
+            "${image}:arm32-${version}"
+
+      - name: Summary
+        run: |
+          {
+            echo "Published multi-arch tags:"
+            echo "- \`${{ steps.image.outputs.name }}:latest\`"
+            echo "- \`${{ steps.image.outputs.name }}:${{ needs.resolve.outputs.tag }}\`"
+            echo ""
+            echo "Default mapping:"
+            echo "- amd64 -> musl x64 release"
+            echo "- arm64 -> glibc arm64 release"
+            echo "- arm32 -> glibc arm32 release"
+          } >> "${GITHUB_STEP_SUMMARY}"

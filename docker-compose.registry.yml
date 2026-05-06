@@ -1,0 +1,30 @@
+services:
+  topspeed-server:
+    image: ghcr.io/YOUR_GITHUB_USERNAME/topspeed-server:latest
+    restart: unless-stopped
+    environment:
+      TOPSPEED_PORT: "28630"
+      TOPSPEED_MAX_PLAYERS: "32"
+      TOPSPEED_LOG_LEVEL: "info"
+      # TOPSPEED_MOTD: "Welcome to TopSpeed"
+    ports:
+      - "28630:28630/udp"
+      - "28631:28631/udp"
+    volumes:
+      - topspeed-data:/app/settings
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    command:
+      - --label-enable
+      - --cleanup
+      - --interval
+      - "300"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  topspeed-data:
