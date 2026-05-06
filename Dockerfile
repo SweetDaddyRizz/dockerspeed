@@ -3,8 +3,11 @@ FROM ${BASE_IMAGE}
 
 WORKDIR /app
 
-RUN groupadd --system topspeed \
-    && useradd --system --gid topspeed --home-dir /app --shell /usr/sbin/nologin topspeed
+RUN if command -v addgroup >/dev/null 2>&1; then \
+      addgroup -S topspeed && adduser -S -G topspeed -h /app -s /sbin/nologin topspeed; \
+    else \
+      groupadd --system topspeed && useradd --system --gid topspeed --home-dir /app --shell /usr/sbin/nologin topspeed; \
+    fi
 
 COPY --chown=topspeed:topspeed app/ ./
 COPY --chown=topspeed:topspeed docker-entrypoint.sh ./
