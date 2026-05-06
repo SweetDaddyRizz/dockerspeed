@@ -1,6 +1,6 @@
 .git
 .gitignore
-README.Docker.md
+README.md
 *.log
 logs/
 app/settings/
