@@ -2,33 +2,46 @@
 
 This repo exists so you can run a TopSpeed dedicated server as a normal Docker container and update it like the rest of your stack.
 
-The published image is expected at:
-
-```text
-ghcr.io/sweetdaddyrizz/topspeed-server
-```
+The published image is expected at ghcr.io/sweetdaddyrizz/topspeed-server
 
 ## Quick start
 
 1. Install Docker and Docker Compose on your Linux host.
 2. Make sure UDP `28630` and `28631` are allowed through your firewall.
-3. Use [docker-compose.registry.yml](C:/Users/Matthew/code/TopSpeed.Server-linux-x64-Release-v-2026.4.13.2/docker-compose.registry.yml) as your starting point.
+3. Use the example below or docker-compose.registry.yml as your starting point.
 4. Start the container:
 
 ```sh
-docker compose -f docker-compose.registry.yml up -d
+docker compose up -d
 ```
 
 5. Watch the logs:
 
 ```sh
-docker compose -f docker-compose.registry.yml logs -f topspeed-server
+docker compose logs
 ```
 
-If the package is private, log in first:
+## Important Note
 
-```sh
-docker login ghcr.io
+The built-in TopSpeed updater is not the preferred Docker update path. It updates files inside a container, and those changes may disappear when the container is replaced. Pulling a newer image is the cleaner model.
+
+## Full Docker Compose Example
+
+```yaml
+services:
+  topspeed-server:
+    image: ghcr.io/sweetdaddyrizz/topspeed-server:latest
+    restart: unless-stopped
+    environment:
+      TOPSPEED_PORT: "28630"
+      TOPSPEED_MAX_PLAYERS: "32"
+      TOPSPEED_LOG_LEVEL: "info"
+       TOPSPEED_MOTD: "Welcome to TopSpeed"
+    ports:
+      - "28630:28630/udp"
+      - "28631:28631/udp"
+    volumes:
+      - ./topspeed-data:/app/settings
 ```
 
 ## Which image tag to use
@@ -112,11 +125,11 @@ docker run --rm -it \
 
 ## Persistent data
 
-The registry Compose file stores settings in a named volume:
+The registry Compose file stores settings in a bind mount volume at ./topspeed-data:
 
 ```yaml
 volumes:
-  - topspeed-data:/app/settings
+  - ./topspeed-data:/app/settings
 ```
 
 That keeps server settings across container recreations.
@@ -126,56 +139,19 @@ That keeps server settings across container recreations.
 If you are using the published GHCR image, the normal update path is:
 
 ```sh
-docker compose -f docker-compose.registry.yml pull
-docker compose -f docker-compose.registry.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
-If you leave the `watchtower` service enabled in [docker-compose.registry.yml](C:/Users/Matthew/code/TopSpeed.Server-linux-x64-Release-v-2026.4.13.2/docker-compose.registry.yml), it will watch for a newer image and recreate the TopSpeed container automatically.
+Also consider deploying this server with Watchtower, which will automatically update your instance when a new server version is released. Example provided in docker-compose.registry.yml
 
-Watchtower is configured with `--label-enable`, so it only updates containers that carry:
-
-```yaml
-labels:
-  com.centurylinklabs.watchtower.enable: "true"
-```
-
-## First deployment checklist
-
-Use this when you bring up the server for the first time:
-
-1. Confirm the container starts without crashing:
-   ```sh
-   docker compose -f docker-compose.registry.yml ps
-   ```
-2. Confirm the logs show the expected server port and discovery port:
-   ```sh
-   docker compose -f docker-compose.registry.yml logs topspeed-server
-   ```
-3. Confirm your firewall/NAT forwards UDP `28630` and `28631`.
-4. Confirm clients can see or join the server.
-5. Only after that, decide whether you want Watchtower left on for automatic updates.
-
-## If you want to build locally instead
-
-This repo can still build a local image from a downloaded TopSpeed release, but that is mainly for development or testing.
-
-If you do that, put the extracted server bundle in `app/` and build with:
-
-```sh
-docker build -t topspeed-server:test .
-```
-
-Then run it with:
-
-```sh
-docker compose up --build
-```
+## Important Note
 
 The built-in TopSpeed updater is not the preferred Docker update path. It updates files inside a container, and those changes disappear when the container is replaced. Pulling a newer image is the cleaner model.
 
 ## How this image gets published
 
-The GitHub Actions workflow at [.github/workflows/publish-container.yml](C:/Users/Matthew/code/TopSpeed.Server-linux-x64-Release-v-2026.4.13.2/.github/workflows/publish-container.yml):
+The GitHub Actions workflow at .github/workflows/publish-container.yml:
 
 1. Reads the latest release from `diamondStar35/top_speed`
 2. Finds the current Linux server assets
@@ -183,4 +159,4 @@ The GitHub Actions workflow at [.github/workflows/publish-container.yml](C:/User
 4. Builds the Docker image for each supported target
 5. Pushes the images to GHCR
 
-The workflow runs daily and can also be triggered manually from GitHub Actions.
+The workflow runs daily.

@@ -1,6 +1,6 @@
 services:
   topspeed-server:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/topspeed-server:latest
+    image: ghcr.io/sweetdaddyrizz/topspeed-server:latest
     restart: unless-stopped
     environment:
       TOPSPEED_PORT: "28630"
@@ -11,20 +11,13 @@ services:
       - "28630:28630/udp"
       - "28631:28631/udp"
     volumes:
-      - topspeed-data:/app/settings
+      - ./topspeed-data:/app/settings
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      - "com.centurylinklabs.watchtower.enable=true"
 
   watchtower:
     image: containrrr/watchtower:latest
     restart: unless-stopped
-    command:
-      - --label-enable
-      - --cleanup
-      - --interval
-      - "300"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-
-volumes:
-  topspeed-data:
+    command: --schedule "0 0 3 * * *" --cleanup
