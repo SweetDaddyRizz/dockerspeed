@@ -329,22 +329,26 @@ jobs:
             exit 0
           fi
 
-          auth_args=()
-          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
-            auth_args=(-H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}")
-          fi
-
           message="TopSpeed release-build is still ${VERSION}. Version ${VERSION} is already published, so no image build was needed.
 
 Run: ${RUN_URL}"
 
-          curl --fail --silent --show-error \
-            -H "Title: TopSpeed check skipped" \
-            -H "Priority: default" \
-            -H "Tags: information_source,skip" \
-            "${auth_args[@]}" \
-            -d "${message}" \
-            "${NTFY_TOPIC_URL}"
+          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
+            curl --fail --silent --show-error \
+              -H "Title: TopSpeed check skipped" \
+              -H "Priority: default" \
+              -H "Tags: information_source,skip" \
+              -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" \
+              -d "${message}" \
+              "${NTFY_TOPIC_URL}"
+          else
+            curl --fail --silent --show-error \
+              -H "Title: TopSpeed check skipped" \
+              -H "Priority: default" \
+              -H "Tags: information_source,skip" \
+              -d "${message}" \
+              "${NTFY_TOPIC_URL}"
+          fi
 
   notify-published:
     needs:
@@ -371,22 +375,26 @@ Run: ${RUN_URL}"
 
           image_name="$(printf '%s' "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
 
-          auth_args=()
-          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
-            auth_args=(-H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}")
-          fi
-
           message="Published TopSpeed server version ${VERSION} to ${image_name} with updated latest and version tags.
 
 Run: ${RUN_URL}"
 
-          curl --fail --silent --show-error \
-            -H "Title: TopSpeed image published" \
-            -H "Priority: default" \
-            -H "Tags: white_check_mark,package,new" \
-            "${auth_args[@]}" \
-            -d "${message}" \
-            "${NTFY_TOPIC_URL}"
+          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
+            curl --fail --silent --show-error \
+              -H "Title: TopSpeed image published" \
+              -H "Priority: default" \
+              -H "Tags: white_check_mark,package,new" \
+              -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" \
+              -d "${message}" \
+              "${NTFY_TOPIC_URL}"
+          else
+            curl --fail --silent --show-error \
+              -H "Title: TopSpeed image published" \
+              -H "Priority: default" \
+              -H "Tags: white_check_mark,package,new" \
+              -d "${message}" \
+              "${NTFY_TOPIC_URL}"
+          fi
 
   notify-failed:
     needs:
@@ -413,11 +421,6 @@ Run: ${RUN_URL}"
             exit 0
           fi
 
-          auth_args=()
-          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
-            auth_args=(-H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}")
-          fi
-
           if [ -n "${VERSION}" ]; then
             message="The TopSpeed container workflow failed while processing upstream version ${VERSION}. Check the GitHub Actions run for details.
 
@@ -428,10 +431,19 @@ Run: ${RUN_URL}"
 Run: ${RUN_URL}"
           fi
 
-          curl --fail --silent --show-error \
-            -H "Title: TopSpeed publish failed" \
-            -H "Priority: high" \
-            -H "Tags: warning,rotating_light,failed" \
-            "${auth_args[@]}" \
-            -d "${message}" \
-            "${NTFY_TOPIC_URL}"
+          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
+            curl --fail --silent --show-error \
+              -H "Title: TopSpeed publish failed" \
+              -H "Priority: high" \
+              -H "Tags: warning,rotating_light,failed" \
+              -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" \
+              -d "${message}" \
+              "${NTFY_TOPIC_URL}"
+          else
+            curl --fail --silent --show-error \
+              -H "Title: TopSpeed publish failed" \
+              -H "Priority: high" \
+              -H "Tags: warning,rotating_light,failed" \
+              -d "${message}" \
+              "${NTFY_TOPIC_URL}"
+          fi
