@@ -312,7 +312,7 @@ jobs:
     needs:
       - resolve
       - decide
-    if: needs.decide.outputs.should_publish == 'false'
+    if: ${{ needs.decide.outputs.should_publish == 'false' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -329,25 +329,12 @@ jobs:
             exit 0
           fi
 
-          message="TopSpeed release-build is still ${VERSION}. Version ${VERSION} is already published, so no image build was needed.
-
-Run: ${RUN_URL}"
+          message="$(printf 'TopSpeed release-build is still %s. Version %s is already published, so no image build was needed.\n\nRun: %s' "${VERSION}" "${VERSION}" "${RUN_URL}")"
 
           if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
-            curl --fail --silent --show-error \
-              -H "Title: TopSpeed check skipped" \
-              -H "Priority: default" \
-              -H "Tags: information_source,skip" \
-              -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" \
-              -d "${message}" \
-              "${NTFY_TOPIC_URL}"
+            curl --fail --silent --show-error -H "Title: TopSpeed check skipped" -H "Priority: default" -H "Tags: information_source,skip" -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" -d "${message}" "${NTFY_TOPIC_URL}"
           else
-            curl --fail --silent --show-error \
-              -H "Title: TopSpeed check skipped" \
-              -H "Priority: default" \
-              -H "Tags: information_source,skip" \
-              -d "${message}" \
-              "${NTFY_TOPIC_URL}"
+            curl --fail --silent --show-error -H "Title: TopSpeed check skipped" -H "Priority: default" -H "Tags: information_source,skip" -d "${message}" "${NTFY_TOPIC_URL}"
           fi
 
   notify-published:
@@ -355,7 +342,7 @@ Run: ${RUN_URL}"
       - resolve
       - decide
       - publish-manifests
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-manifests.result == 'success'
+    if: ${{ needs.decide.outputs.should_publish == 'true' && needs.publish-manifests.result == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -375,25 +362,12 @@ Run: ${RUN_URL}"
 
           image_name="$(printf '%s' "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
 
-          message="Published TopSpeed server version ${VERSION} to ${image_name} with updated latest and version tags.
-
-Run: ${RUN_URL}"
+          message="$(printf 'Published TopSpeed server version %s to %s with updated latest and version tags.\n\nRun: %s' "${VERSION}" "${image_name}" "${RUN_URL}")"
 
           if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
-            curl --fail --silent --show-error \
-              -H "Title: TopSpeed image published" \
-              -H "Priority: default" \
-              -H "Tags: white_check_mark,package,new" \
-              -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" \
-              -d "${message}" \
-              "${NTFY_TOPIC_URL}"
+            curl --fail --silent --show-error -H "Title: TopSpeed image published" -H "Priority: default" -H "Tags: white_check_mark,package,new" -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" -d "${message}" "${NTFY_TOPIC_URL}"
           else
-            curl --fail --silent --show-error \
-              -H "Title: TopSpeed image published" \
-              -H "Priority: default" \
-              -H "Tags: white_check_mark,package,new" \
-              -d "${message}" \
-              "${NTFY_TOPIC_URL}"
+            curl --fail --silent --show-error -H "Title: TopSpeed image published" -H "Priority: default" -H "Tags: white_check_mark,package,new" -d "${message}" "${NTFY_TOPIC_URL}"
           fi
 
   notify-failed:
@@ -404,7 +378,7 @@ Run: ${RUN_URL}"
       - publish-manifests
       - notify-skipped
       - notify-published
-    if: failure()
+    if: ${{ failure() }}
     runs-on: ubuntu-latest
 
     steps:
@@ -422,28 +396,13 @@ Run: ${RUN_URL}"
           fi
 
           if [ -n "${VERSION}" ]; then
-            message="The TopSpeed container workflow failed while processing upstream version ${VERSION}. Check the GitHub Actions run for details.
-
-Run: ${RUN_URL}"
+            message="$(printf 'The TopSpeed container workflow failed while processing upstream version %s. Check the GitHub Actions run for details.\n\nRun: %s' "${VERSION}" "${RUN_URL}")"
           else
-            message="The TopSpeed container workflow failed before it could resolve the upstream version. Check the GitHub Actions run for details.
-
-Run: ${RUN_URL}"
+            message="$(printf 'The TopSpeed container workflow failed before it could resolve the upstream version. Check the GitHub Actions run for details.\n\nRun: %s' "${RUN_URL}")"
           fi
 
           if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
-            curl --fail --silent --show-error \
-              -H "Title: TopSpeed publish failed" \
-              -H "Priority: high" \
-              -H "Tags: warning,rotating_light,failed" \
-              -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" \
-              -d "${message}" \
-              "${NTFY_TOPIC_URL}"
+            curl --fail --silent --show-error -H "Title: TopSpeed publish failed" -H "Priority: high" -H "Tags: warning,rotating_light,failed" -H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}" -d "${message}" "${NTFY_TOPIC_URL}"
           else
-            curl --fail --silent --show-error \
-              -H "Title: TopSpeed publish failed" \
-              -H "Priority: high" \
-              -H "Tags: warning,rotating_light,failed" \
-              -d "${message}" \
-              "${NTFY_TOPIC_URL}"
+            curl --fail --silent --show-error -H "Title: TopSpeed publish failed" -H "Priority: high" -H "Tags: warning,rotating_light,failed" -d "${message}" "${NTFY_TOPIC_URL}"
           fi
