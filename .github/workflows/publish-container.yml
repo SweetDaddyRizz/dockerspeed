@@ -100,9 +100,26 @@ jobs:
 
           image="${{ steps.image.outputs.name }}"
           upstream_fingerprint="${{ needs.resolve.outputs.fingerprint }}"
+          inspect_json="$(
+            docker buildx imagetools inspect "${image}:latest" --format '{{json .Manifest}}' 2>/dev/null \
+              || docker buildx imagetools inspect --raw "${image}:latest" 2>/dev/null \
+              || true
+          )"
+
           published_fingerprint="$(
-            docker buildx imagetools inspect --raw "${image}:latest" 2>/dev/null \
-              | jq -r '.annotations["io.topspeed.release-fingerprint"] // empty' \
+            printf '%s' "${inspect_json}" \
+              | jq -r '
+                  .annotations["io.topspeed.release-fingerprint"]
+                  // (
+                    [
+                      .manifests[]?.annotations["io.topspeed.release-fingerprint"]
+                    ]
+                    | map(select(. != null and . != ""))
+                    | unique
+                    | first
+                  )
+                  // empty
+                ' \
               || true
           )"
 
@@ -302,6 +319,7 @@ jobs:
               --tag "${image}:latest" \
               --tag "${image}:${version}" \
               --annotation "index:io.topspeed.release-fingerprint=${{ needs.resolve.outputs.fingerprint }}" \
+              --annotation "manifest-descriptor:io.topspeed.release-fingerprint=${{ needs.resolve.outputs.fingerprint }}" \
               --annotation "index:org.opencontainers.image.version=${{ needs.resolve.outputs.version }}" \
               --annotation "index:io.topspeed.upstream-release-tag=${{ env.UPSTREAM_RELEASE_TAG }}" \
               "${sources[@]}"; then
