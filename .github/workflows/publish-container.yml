@@ -59,6 +59,7 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     outputs:
+      published_version_tag: ${{ steps.compare.outputs.published_version_tag }}
       should_publish: ${{ steps.compare.outputs.should_publish }}
 
     steps:
@@ -306,3 +307,131 @@ jobs:
             echo "- arm64 -> glibc arm64 release"
             echo "- arm32 -> glibc arm32 release"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  notify-skipped:
+    needs:
+      - resolve
+      - decide
+    if: needs.decide.outputs.should_publish == 'false'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish ntfy skipped notification
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          NTFY_ACCESS_TOKEN: ${{ secrets.NTFY_ACCESS_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${NTFY_TOPIC_URL}" ]; then
+            exit 0
+          fi
+
+          auth_args=()
+          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
+            auth_args=(-H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}")
+          fi
+
+          message="TopSpeed release-build is still ${VERSION}. Version ${VERSION} is already published, so no image build was needed.
+
+Run: ${RUN_URL}"
+
+          curl --fail --silent --show-error \
+            -H "Title: TopSpeed check skipped" \
+            -H "Priority: default" \
+            -H "Tags: information_source,skip" \
+            "${auth_args[@]}" \
+            -d "${message}" \
+            "${NTFY_TOPIC_URL}"
+
+  notify-published:
+    needs:
+      - resolve
+      - decide
+      - publish-manifests
+    if: needs.decide.outputs.should_publish == 'true' && needs.publish-manifests.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish ntfy success notification
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          NTFY_ACCESS_TOKEN: ${{ secrets.NTFY_ACCESS_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/topspeed-server
+        run: |
+          set -euo pipefail
+
+          if [ -z "${NTFY_TOPIC_URL}" ]; then
+            exit 0
+          fi
+
+          image_name="$(printf '%s' "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+
+          auth_args=()
+          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
+            auth_args=(-H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}")
+          fi
+
+          message="Published TopSpeed server version ${VERSION} to ${image_name} with updated latest and version tags.
+
+Run: ${RUN_URL}"
+
+          curl --fail --silent --show-error \
+            -H "Title: TopSpeed image published" \
+            -H "Priority: default" \
+            -H "Tags: white_check_mark,package,new" \
+            "${auth_args[@]}" \
+            -d "${message}" \
+            "${NTFY_TOPIC_URL}"
+
+  notify-failed:
+    needs:
+      - resolve
+      - decide
+      - publish
+      - publish-manifests
+      - notify-skipped
+      - notify-published
+    if: failure()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish ntfy failure notification
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          NTFY_ACCESS_TOKEN: ${{ secrets.NTFY_ACCESS_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${NTFY_TOPIC_URL}" ]; then
+            exit 0
+          fi
+
+          auth_args=()
+          if [ -n "${NTFY_ACCESS_TOKEN}" ]; then
+            auth_args=(-H "Authorization: Bearer ${NTFY_ACCESS_TOKEN}")
+          fi
+
+          if [ -n "${VERSION}" ]; then
+            message="The TopSpeed container workflow failed while processing upstream version ${VERSION}. Check the GitHub Actions run for details.
+
+Run: ${RUN_URL}"
+          else
+            message="The TopSpeed container workflow failed before it could resolve the upstream version. Check the GitHub Actions run for details.
+
+Run: ${RUN_URL}"
+          fi
+
+          curl --fail --silent --show-error \
+            -H "Title: TopSpeed publish failed" \
+            -H "Priority: high" \
+            -H "Tags: warning,rotating_light,failed" \
+            "${auth_args[@]}" \
+            -d "${message}" \
+            "${NTFY_TOPIC_URL}"
