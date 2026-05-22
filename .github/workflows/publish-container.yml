@@ -19,7 +19,6 @@ jobs:
   resolve:
     runs-on: ubuntu-latest
     outputs:
-      fingerprint: ${{ steps.release.outputs.fingerprint }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
 
@@ -39,20 +38,6 @@ jobs:
             exit 1
           fi
 
-          fingerprint_input="$(jq -r '
-            .assets[]
-            | select(.name | test("^TopSpeed\\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v.*\\.zip$"))
-            | [.name, (.size | tostring), .updated_at, (.id | tostring), (.digest // "")]
-            | @tsv
-          ' <<< "${release_json}" | sort)"
-
-          if [ -z "${fingerprint_input}" ]; then
-            echo "No matching TopSpeed.Server assets were found for fingerprinting." >&2
-            exit 1
-          fi
-
-          fingerprint="$(printf '%s\n' "${fingerprint_input}" | sha256sum | awk '{print $1}')"
-
           version="$(sed -E 's/^TopSpeed\.Server-linux-(musl-)?(x64|arm64|arm32)-Release-v-?(.+)\.zip$/\3/' <<< "${asset_name}")"
           if [ "${version}" = "${asset_name}" ]; then
             version="$(date -u +%Y%m%d%H%M%S)"
@@ -60,14 +45,14 @@ jobs:
 
           tag="$(tr '[:upper:]' '[:lower:]' <<< "${version}" | sed -E 's/[^a-z0-9_.-]+/-/g')"
 
-          echo "fingerprint=${fingerprint}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Summary
         run: |
           {
-            echo "Resolved upstream fingerprint: \`${{ steps.release.outputs.fingerprint }}\`"
+            echo "Resolved upstream version: \`${{ steps.release.outputs.version }}\`"
+            echo "Resolved image tag: \`${{ steps.release.outputs.tag }}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   decide:
@@ -93,52 +78,30 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Compare upstream fingerprint with published latest
+      - name: Check whether this version is already published
         id: compare
         run: |
           set -euo pipefail
 
           image="${{ steps.image.outputs.name }}"
-          upstream_fingerprint="${{ needs.resolve.outputs.fingerprint }}"
-          inspect_json="$(
-            docker buildx imagetools inspect "${image}:latest" --format '{{json .Manifest}}' 2>/dev/null \
-              || docker buildx imagetools inspect --raw "${image}:latest" 2>/dev/null \
-              || true
-          )"
+          version_tag="${{ needs.resolve.outputs.tag }}"
 
-          published_fingerprint="$(
-            printf '%s' "${inspect_json}" \
-              | jq -r '
-                  .annotations["io.topspeed.release-fingerprint"]
-                  // (
-                    [
-                      .manifests[]?.annotations["io.topspeed.release-fingerprint"]
-                    ]
-                    | map(select(. != null and . != ""))
-                    | unique
-                    | first
-                  )
-                  // empty
-                ' \
-              || true
-          )"
-
-          echo "published_fingerprint=${published_fingerprint}" >> "${GITHUB_OUTPUT}"
-
-          if [ -n "${published_fingerprint}" ] && [ "${published_fingerprint}" = "${upstream_fingerprint}" ]; then
+          if docker buildx imagetools inspect "${image}:${version_tag}" >/dev/null 2>&1; then
+            echo "published_version_tag=${version_tag}" >> "${GITHUB_OUTPUT}"
             echo "should_publish=false" >> "${GITHUB_OUTPUT}"
           else
+            echo "published_version_tag=" >> "${GITHUB_OUTPUT}"
             echo "should_publish=true" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Summary
         run: |
           {
-            echo "Published latest fingerprint: \`${{ steps.compare.outputs.published_fingerprint || 'none' }}\`"
-            echo "Upstream release fingerprint: \`${{ needs.resolve.outputs.fingerprint }}\`"
+            echo "Published version tag: \`${{ steps.compare.outputs.published_version_tag || 'none' }}\`"
+            echo "Upstream version tag: \`${{ needs.resolve.outputs.tag }}\`"
             if [ "${{ steps.compare.outputs.should_publish }}" = "false" ]; then
               echo ""
-              echo "Upstream assets match the currently published \`latest\` manifest. Skipping rebuild."
+              echo "That version is already published. Skipping rebuild."
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -318,8 +281,6 @@ jobs:
             if docker buildx imagetools create \
               --tag "${image}:latest" \
               --tag "${image}:${version}" \
-              --annotation "index:io.topspeed.release-fingerprint=${{ needs.resolve.outputs.fingerprint }}" \
-              --annotation "manifest-descriptor:io.topspeed.release-fingerprint=${{ needs.resolve.outputs.fingerprint }}" \
               --annotation "index:org.opencontainers.image.version=${{ needs.resolve.outputs.version }}" \
               --annotation "index:io.topspeed.upstream-release-tag=${{ env.UPSTREAM_RELEASE_TAG }}" \
               "${sources[@]}"; then
@@ -339,8 +300,6 @@ jobs:
             echo "Published multi-arch tags:"
             echo "- \`${{ steps.image.outputs.name }}:latest\`"
             echo "- \`${{ steps.image.outputs.name }}:${{ needs.resolve.outputs.tag }}\`"
-            echo ""
-            echo "Fingerprint: \`${{ needs.resolve.outputs.fingerprint }}\`"
             echo ""
             echo "Default mapping:"
             echo "- amd64 -> musl x64 release"
